@@ -1,0 +1,26 @@
+services:
+  comfyui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: comfyui:latest
+    ports:
+      - "8188:8188"
+    environment:
+      - COMFYUI_TEMPLATES=hidream_i1_fast
+      - HF_TOKEN=${HF_TOKEN:-}
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # Model storage (persists across restarts)
+      - ./models:/app/ComfyUI/models
+      # Hot reload download.py and entrypoint.sh during development
+      - ./download.py:/app/download.py
+      - ./entrypoint.sh:/app/entrypoint.sh
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
