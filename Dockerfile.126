@@ -2,11 +2,12 @@
 ARG COMFYUI_VERSION=v0.3.71
 
 # Base downloader stage with common setup
-FROM nvidia/cuda:12.9.1-cudnn-devel-ubuntu24.04
+FROM nvidia/cuda:12.6.3-cudnn-devel-ubuntu24.04
 
 # Set CUDA architectures for building without GPUs
-# Valid CUDA compute capabilities: 8.0 (A100), 8.6 (RTX 30xx), 8.7 (Jetson), 8.9 (RTX 40xx, L4, L40), 12.0 (Blackwell)
-ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;8.7;8.9;12.0"
+# Valid CUDA compute capabilities: 8.0 (A100), 8.6 (RTX 30xx), 8.7 (Jetson), 8.9 (RTX 40xx, L4, L40)
+# Excludes Blackwell (9.0) and newer
+ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;8.7;8.9"
 
 # Re-declare the ARG after FROM
 ARG COMFYUI_VERSION
@@ -37,7 +38,7 @@ SHELL ["/bin/bash", "-c"]
 # Install comfy-cli and required dependencies
 RUN source /app/venv/bin/activate && \
     pip install --upgrade pip && \
-    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu129 && \
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126 && \
     pip install triton && \
     pip install comfy-cli
 
@@ -50,7 +51,7 @@ RUN source /app/venv/bin/activate && \
     rm -rf /tmp/SageAttention
 
 # Install ComfyUI
-RUN source /app/venv/bin/activate && comfy --skip-prompt --workspace /app/ComfyUI install --version $COMFYUI_VERSION --cuda-version 12.9 --nvidia
+RUN source /app/venv/bin/activate && comfy --skip-prompt --workspace /app/ComfyUI install --version $COMFYUI_VERSION --cuda-version 12.6 --nvidia
 
 # Install additional dependencies for model downloading
 RUN source /app/venv/bin/activate && \
