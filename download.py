@@ -8,7 +8,7 @@ import os
 import sys
 import json
 from pathlib import Path
-from huggingface_hub import hf_hub_download
+from huggingface_hub import hf_hub_download, list_repo_files
 
 def find_all_models_in_node(node):
     """Recursively find all model references in a node."""
@@ -137,6 +137,56 @@ def download_model(model_info, base_dir='/app/ComfyUI/models'):
             print(f"✗ Error: {e}", flush=True)
             return False
 
+def download_extra_loras(base_dir='/app/ComfyUI/models'):
+    """Download extra LoRAs from HuggingFace repos."""
+    extra_loras = os.getenv('EXTRA_LORAS', '').strip()
+
+    if not extra_loras:
+        return
+
+    print(f"\n{'='*80}", flush=True)
+    print("Downloading Extra LoRAs", flush=True)
+    print(f"{'='*80}", flush=True)
+
+    loras_dir = Path(base_dir) / 'loras'
+    loras_dir.mkdir(parents=True, exist_ok=True)
+
+    repos = [r.strip() for r in extra_loras.split(',') if r.strip()]
+    print(f"Repos: {', '.join(repos)}", flush=True)
+
+    for repo_id in repos:
+        print(f"\n→ Processing: {repo_id}", flush=True)
+        try:
+            files = list_repo_files(repo_id, token=os.getenv('HF_TOKEN'))
+            safetensors = [f for f in files if f.endswith('.safetensors')]
+
+            if not safetensors:
+                print(f"  ⚠ No .safetensors files found in {repo_id}", flush=True)
+                continue
+
+            print(f"  Found {len(safetensors)} LoRA files", flush=True)
+
+            for filename in safetensors:
+                dest_file = loras_dir / Path(filename).name
+
+                if dest_file.exists():
+                    print(f"  ✓ Already exists: {filename}", flush=True)
+                    continue
+
+                print(f"  ↓ Downloading: {filename}", flush=True)
+                cached_path = hf_hub_download(
+                    repo_id=repo_id,
+                    filename=filename,
+                    token=os.getenv('HF_TOKEN')
+                )
+                import shutil
+                shutil.copy2(cached_path, dest_file)
+                print(f"  ✓ Downloaded: {dest_file.name}", flush=True)
+
+        except Exception as e:
+            print(f"  ✗ Error with {repo_id}: {e}", flush=True)
+
+
 def main():
     """Main download logic."""
     templates = os.getenv('COMFYUI_TEMPLATES', '').strip()
@@ -178,6 +228,9 @@ def main():
     print(f"\n{'='*80}", flush=True)
     print(f"Download complete: {total_success}/{total_files} files successful", flush=True)
     print(f"{'='*80}", flush=True)
+
+    # Download extra LoRAs
+    download_extra_loras()
 
 if __name__ == "__main__":
     main()
