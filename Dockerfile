@@ -1,15 +1,11 @@
 # Define the version as a build argument
 ARG COMFYUI_VERSION=v0.5.1
 
-# Base downloader stage with common setup
+# Base image with CUDA runtime
 FROM nvidia/cuda:12.9.1-cudnn-devel-ubuntu24.04
 
 # Set CUDA architectures for building without GPUs
-# Valid CUDA compute capabilities: 8.0 (A100), 8.6 (RTX 30xx), 8.7 (Jetson), 8.9 (RTX 40xx, L4, L40), 12.0 (Blackwell)
 ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;8.7;8.9;12.0"
-
-# Re-declare the ARG after FROM
-ARG COMFYUI_VERSION
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
@@ -20,9 +16,7 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     python3-venv \
     git \
-    libgl1 \
-    libglib2.0-0 \
-    libgthread-2.0-0 \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Set up workspace directory
@@ -34,12 +28,30 @@ RUN python3 -m venv /app/venv
 # Use shell form for commands that need to source the activation script
 SHELL ["/bin/bash", "-c"]
 
-# Install comfy-cli and required dependencies
+# Install torch first (stable layer - cached separately, matches c3-vibevoice-gradio)
 RUN source /app/venv/bin/activate && \
-    pip install --upgrade pip && \
-    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu129 && \
-    pip install triton && \
-    pip install comfy-cli
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu129
+
+# Install flash-attn (separate layer - long compile time, matches c3-vibevoice-gradio)
+RUN source /app/venv/bin/activate && \
+    pip install packaging ninja wheel psutil && \
+    pip install flash-attn --no-build-isolation
+
+# === ComfyUI-specific layers below ===
+
+# Re-declare the ARG after FROM
+ARG COMFYUI_VERSION
+
+# Install additional system packages for ComfyUI
+RUN apt-get update && apt-get install -y \
+    libgl1 \
+    libglib2.0-0 \
+    libgthread-2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install triton and comfy-cli
+RUN source /app/venv/bin/activate && \
+    pip install triton comfy-cli
 
 # Build and install SageAttention2 from source (using our fork with GPU detection bypass)
 RUN source /app/venv/bin/activate && \
