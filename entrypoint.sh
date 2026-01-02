@@ -9,9 +9,9 @@ if [ -z "${HF_TOKEN:-}" ]; then
     unset HF_TOKEN
 fi
 
-# Download templates if COMFYUI_TEMPLATES is set
-if [ -n "${COMFYUI_TEMPLATES}" ]; then
-    echo "Checking templates: ${COMFYUI_TEMPLATES}"
+# Download models from workflow or templates
+if [ -n "${COMFYUI_WORKFLOW_B64}" ] || [ -n "${COMFYUI_TEMPLATES}" ]; then
+    echo "Running model downloader..."
     source /app/venv/bin/activate && python3 /app/download.py
 fi
 

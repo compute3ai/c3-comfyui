@@ -7,6 +7,7 @@ Downloads ALL dependencies for a template, not just individual models
 import os
 import sys
 import json
+import base64
 from pathlib import Path
 from huggingface_hub import hf_hub_download, list_repo_files
 
@@ -33,6 +34,16 @@ def find_all_models_in_node(node):
     recurse(node)
     return models
 
+def get_workflow_dependencies(workflow):
+    """Get all file dependencies from a workflow (graph format)."""
+    nodes = workflow.get('nodes', [])
+    all_models = []
+    for node in nodes:
+        models = find_all_models_in_node(node)
+        all_models.extend(models)
+    return all_models
+
+
 def get_template_dependencies(template_id):
     """Get all file dependencies for a template."""
     try:
@@ -50,14 +61,7 @@ def get_template_dependencies(template_id):
                     with open(workflow_path, 'r') as f:
                         workflow = json.load(f)
 
-                    nodes = workflow.get('nodes', [])
-
-                    all_models = []
-                    for node in nodes:
-                        models = find_all_models_in_node(node)
-                        all_models.extend(models)
-
-                    return all_models
+                    return get_workflow_dependencies(workflow)
 
     return []
 
@@ -189,41 +193,85 @@ def download_extra_loras(base_dir='/app/ComfyUI/models'):
 
 def main():
     """Main download logic."""
-    templates = os.getenv('COMFYUI_TEMPLATES', '').strip()
-
-    if not templates:
-        print("No templates specified in COMFYUI_TEMPLATES environment variable", flush=True)
-        return
-
     print("=" * 80, flush=True)
-    print("ComfyUI Template Downloader V2", flush=True)
+    print("ComfyUI Model Downloader V3", flush=True)
     print("=" * 80, flush=True)
-
-    requested_templates = [t.strip() for t in templates.split(',') if t.strip()]
-    print(f"\nRequested templates: {', '.join(requested_templates)}", flush=True)
 
     total_success = 0
     total_files = 0
 
-    for template_id in requested_templates:
+    # Process COMFYUI_WORKFLOW_B64 if present (base64-encoded graph JSON)
+    workflow_b64 = os.getenv('COMFYUI_WORKFLOW_B64', '').strip()
+    if workflow_b64:
         print(f"\n{'='*80}", flush=True)
-        print(f"Processing template: {template_id}", flush=True)
+        print("Processing workflow from COMFYUI_WORKFLOW_B64", flush=True)
         print(f"{'='*80}", flush=True)
 
-        dependencies = get_template_dependencies(template_id)
+        try:
+            workflow_json = base64.b64decode(workflow_b64).decode('utf-8')
+            workflow = json.loads(workflow_json)
+            dependencies = get_workflow_dependencies(workflow)
 
-        if not dependencies:
-            print(f"⚠ No dependencies found for template: {template_id}", flush=True)
-            continue
+            if dependencies:
+                # Deduplicate by name
+                seen = set()
+                unique_deps = []
+                for dep in dependencies:
+                    if dep['name'] not in seen:
+                        seen.add(dep['name'])
+                        unique_deps.append(dep)
 
-        print(f"\nFound {len(dependencies)} files for {template_id}:", flush=True)
-        for dep in dependencies:
-            print(f"  - {dep['name']} ({dep['directory']})", flush=True)
+                print(f"\nFound {len(unique_deps)} unique models in workflow:", flush=True)
+                for dep in unique_deps:
+                    print(f"  - {dep['name']} ({dep['directory']})", flush=True)
 
-        for dep in dependencies:
-            total_files += 1
-            if download_model(dep):
-                total_success += 1
+                for dep in unique_deps:
+                    total_files += 1
+                    if download_model(dep):
+                        total_success += 1
+            else:
+                print("⚠ No model dependencies found in workflow", flush=True)
+
+        except Exception as e:
+            print(f"✗ Error processing COMFYUI_WORKFLOW_B64: {e}", flush=True)
+
+    # Process COMFYUI_TEMPLATES if present
+    templates = os.getenv('COMFYUI_TEMPLATES', '').strip()
+    if templates:
+        requested_templates = [t.strip() for t in templates.split(',') if t.strip()]
+        print(f"\nRequested templates: {', '.join(requested_templates)}", flush=True)
+
+        for template_id in requested_templates:
+            print(f"\n{'='*80}", flush=True)
+            print(f"Processing template: {template_id}", flush=True)
+            print(f"{'='*80}", flush=True)
+
+            dependencies = get_template_dependencies(template_id)
+
+            if not dependencies:
+                print(f"⚠ No dependencies found for template: {template_id}", flush=True)
+                continue
+
+            # Deduplicate by name
+            seen = set()
+            unique_deps = []
+            for dep in dependencies:
+                if dep['name'] not in seen:
+                    seen.add(dep['name'])
+                    unique_deps.append(dep)
+
+            print(f"\nFound {len(unique_deps)} unique models for {template_id}:", flush=True)
+            for dep in unique_deps:
+                print(f"  - {dep['name']} ({dep['directory']})", flush=True)
+
+            for dep in unique_deps:
+                total_files += 1
+                if download_model(dep):
+                    total_success += 1
+
+    if not workflow_b64 and not templates:
+        print("\nNo workflow or templates specified.", flush=True)
+        print("Set COMFYUI_WORKFLOW_B64 or COMFYUI_TEMPLATES environment variable.", flush=True)
 
     print(f"\n{'='*80}", flush=True)
     print(f"Download complete: {total_success}/{total_files} files successful", flush=True)

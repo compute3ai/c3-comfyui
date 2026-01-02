@@ -1,11 +1,14 @@
-# Define the version as a build argument
-ARG COMFYUI_VERSION=v0.5.1
+# Define build arguments
+ARG COMFYUI_VERSION=v0.7.0
+ARG MAX_JOBS=8
+ARG EXT_PARALLEL=2
 
 # Base image with CUDA runtime
 FROM nvidia/cuda:12.9.1-cudnn-devel-ubuntu24.04
 
 # Set CUDA architectures for building without GPUs
-ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;8.7;8.9;12.0"
+# 8.0=A100, 8.6=RTX30xx, 8.9=RTX40xx/L40S, 9.0=H100, 12.0=Blackwell
+ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0;12.0"
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
@@ -28,9 +31,10 @@ RUN python3 -m venv /app/venv
 # Use shell form for commands that need to source the activation script
 SHELL ["/bin/bash", "-c"]
 
-# Install torch first (stable layer - cached separately, matches c3-vibevoice-gradio)
+# Install torch first (stable layer - cached separately)
+# cu128 is backward compatible with CUDA 12.9 runtime (cu129 wheels currently broken)
 RUN source /app/venv/bin/activate && \
-    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu129
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 
 # Install flash-attn (separate layer - long compile time, matches c3-vibevoice-gradio)
 RUN source /app/venv/bin/activate && \
@@ -39,8 +43,10 @@ RUN source /app/venv/bin/activate && \
 
 # === ComfyUI-specific layers below ===
 
-# Re-declare the ARG after FROM
+# Re-declare ARGs after FROM
 ARG COMFYUI_VERSION
+ARG MAX_JOBS
+ARG EXT_PARALLEL
 
 # Install additional system packages for ComfyUI
 RUN apt-get update && apt-get install -y \
@@ -53,11 +59,12 @@ RUN apt-get update && apt-get install -y \
 RUN source /app/venv/bin/activate && \
     pip install triton comfy-cli
 
-# Build and install SageAttention2 from source (using our fork with GPU detection bypass)
+# Build and install SageAttention2 from source (c3 fork fixes SM90 build for multi-arch)
+# EXT_PARALLEL: extensions built concurrently, MAX_JOBS: ninja jobs per extension
 RUN source /app/venv/bin/activate && \
-    git clone https://github.com/comput3ai/SageAttention.git /tmp/SageAttention && \
+    git clone https://github.com/compute3ai/SageAttention.git /tmp/SageAttention && \
     cd /tmp/SageAttention && \
-    python setup.py install && \
+    EXT_PARALLEL=${EXT_PARALLEL} MAX_JOBS=${MAX_JOBS} pip install . --no-build-isolation && \
     cd / && \
     rm -rf /tmp/SageAttention
 
@@ -67,12 +74,6 @@ RUN source /app/venv/bin/activate && comfy --skip-prompt --workspace /app/ComfyU
 # Install additional dependencies for model downloading
 RUN source /app/venv/bin/activate && \
     pip install huggingface_hub
-
-# Create ComfyUI-Manager directory for config
-RUN mkdir -p /app/ComfyUI/user/default/ComfyUI-Manager/
-
-# Copy config.ini file
-COPY config.ini /app/ComfyUI/user/default/ComfyUI-Manager/config.ini
 
 # Expose port (default ComfyUI port is 8188)
 EXPOSE 8188
