@@ -6,12 +6,20 @@ ARG EXT_PARALLEL=2
 # Base image with CUDA runtime
 FROM nvidia/cuda:12.9.1-cudnn-devel-ubuntu24.04
 
+# Re-declare ARGs after FROM so build args apply to all build steps
+ARG COMFYUI_VERSION
+ARG MAX_JOBS
+ARG EXT_PARALLEL
+
 # Set CUDA architectures for building without GPUs
 # 8.0=A100, 8.6=RTX30xx, 8.9=RTX40xx/L40S, 9.0=H100, 12.0=Blackwell
 ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0;12.0"
 
 # Set environment variables
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONUNBUFFERED=1 \
+    MAX_JOBS=${MAX_JOBS} \
+    EXT_PARALLEL=${EXT_PARALLEL} \
+    CMAKE_BUILD_PARALLEL_LEVEL=${MAX_JOBS}
 
 # Install Python and required packages
 RUN apt-get update && apt-get install -y \
@@ -42,11 +50,6 @@ RUN source /app/venv/bin/activate && \
     pip install flash-attn --no-build-isolation
 
 # === ComfyUI-specific layers below ===
-
-# Re-declare ARGs after FROM
-ARG COMFYUI_VERSION
-ARG MAX_JOBS
-ARG EXT_PARALLEL
 
 # Install additional system packages for ComfyUI
 RUN apt-get update && apt-get install -y \
