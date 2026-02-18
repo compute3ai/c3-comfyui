@@ -42,7 +42,7 @@ SHELL ["/bin/bash", "-c"]
 # Install torch first (stable layer - cached separately)
 # cu128 is backward compatible with CUDA 12.9 runtime (cu129 wheels currently broken)
 RUN source /app/venv/bin/activate && \
-    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+    pip install torch==2.9.1+cu128 torchvision==0.24.1+cu128 torchaudio==2.9.1+cu128 --index-url https://download.pytorch.org/whl/cu128
 
 # Install flash-attn (separate layer - long compile time, matches c3-vibevoice-gradio)
 RUN source /app/venv/bin/activate && \
